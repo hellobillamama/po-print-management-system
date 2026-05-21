@@ -3,15 +3,108 @@ import {
   Box, Paper, Typography, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Chip, Stack, Dialog, DialogTitle, DialogContent,
   DialogActions, Button, Divider, TextField, InputAdornment, Alert,
-  Card, CardContent, Grid
+  Card, CardContent, Grid, Checkbox, Tooltip
 } from '@mui/material';
-import { Receipt, Search, Image, Print as PrintIcon, Person } from '@mui/icons-material';
+import { Receipt, Search, Print as PrintIcon, Person, SelectAll, Deselect } from '@mui/icons-material';
 import { useApp } from '../../contexts/AppContext';
+
+// Build the full print HTML for one receipt block
+function buildReceiptHTML(receipt, idx, total) {
+  const posRows = (receipt.pos || []).map((p, i) =>
+    `<tr>
+      <td style="border:1px solid #ccc;padding:6px;text-align:center;">${i + 1}</td>
+      <td style="border:1px solid #ccc;padding:6px;">${p.ordNo}</td>
+      <td style="border:1px solid #ccc;padding:6px;font-size:11px;">${p.styleNo}</td>
+      <td style="border:1px solid #ccc;padding:6px;">${p.eoNo || '-'}</td>
+      <td style="border:1px solid #ccc;padding:6px;">${p.buyerName || '-'}</td>
+      <td style="border:1px solid #ccc;padding:6px;text-align:center;">${p.prodQty}</td>
+      <td style="border:1px solid #ccc;padding:6px;">${p.ordDt || '-'}</td>
+    </tr>`
+  ).join('');
+
+  const pageBreak = idx < total - 1
+    ? 'page-break-after: always;'
+    : '';
+
+  return `
+    <div style="${pageBreak} padding: 20px; font-family: Arial, sans-serif;">
+      <div style="text-align:center; margin-bottom: 16px;">
+        <h2 style="margin:0; font-size:20px; letter-spacing:1px;">KARIGAR HANDOVER RECEIPT</h2>
+        <p style="margin:4px 0; color:#555; font-size:12px;">PO Print Management System</p>
+      </div>
+
+      <hr style="border:1.5px solid #333; margin-bottom:12px;" />
+
+      <table style="width:100%; margin-bottom:12px; font-size:13px;">
+        <tr>
+          <td style="width:50%;"><strong>Karigar (Factory):</strong> ${receipt.karigar}</td>
+          <td style="width:50%;"><strong>Receipt ID:</strong> <span style="font-family:monospace;font-size:11px;">${receipt.id}</span></td>
+        </tr>
+        <tr>
+          <td><strong>Issued By:</strong> ${receipt.issuedBy}</td>
+          <td><strong>Date & Time:</strong> ${new Date(receipt.issuedAt).toLocaleString()}</td>
+        </tr>
+        <tr>
+          <td><strong>Total POs:</strong> ${receipt.poCount}</td>
+          <td><strong>Total Quantity:</strong> ${receipt.totalQty}</td>
+        </tr>
+      </table>
+
+      <table style="width:100%; border-collapse:collapse; font-size:12px; margin-bottom:16px;">
+        <thead>
+          <tr style="background:#f0f0f0;">
+            <th style="border:1px solid #ccc;padding:6px;text-align:center;">#</th>
+            <th style="border:1px solid #ccc;padding:6px;">Ord No</th>
+            <th style="border:1px solid #ccc;padding:6px;">Style No</th>
+            <th style="border:1px solid #ccc;padding:6px;">EO No</th>
+            <th style="border:1px solid #ccc;padding:6px;">Buyer</th>
+            <th style="border:1px solid #ccc;padding:6px;text-align:center;">Qty</th>
+            <th style="border:1px solid #ccc;padding:6px;">Order Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${posRows}
+        </tbody>
+        <tfoot>
+          <tr style="background:#f9f9f9; font-weight:bold;">
+            <td colspan="5" style="border:1px solid #ccc;padding:6px;text-align:right;">Total Quantity:</td>
+            <td style="border:1px solid #ccc;padding:6px;text-align:center;">${receipt.totalQty}</td>
+            <td style="border:1px solid #ccc;padding:6px;"></td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-top:20px;">
+        <div>
+          <p style="margin:0 0 4px;font-size:13px;"><strong>Karigar Signature:</strong></p>
+          ${receipt.signature
+            ? `<div style="border:1px solid #ccc; padding:4px; display:inline-block; background:white;">
+                <img src="${receipt.signature}" style="height:70px; max-width:200px;" />
+               </div>
+               <p style="font-size:11px; color:#555; margin:4px 0;">${receipt.karigar}</p>`
+            : `<div style="border:1px dashed #aaa; width:200px; height:70px; display:flex; align-items:center; justify-content:center; color:#aaa; font-size:12px;">No Signature</div>`
+          }
+        </div>
+        <div style="text-align:right;">
+          <p style="margin:0 0 4px;font-size:13px;"><strong>Issued By Signature:</strong></p>
+          <div style="border:1px dashed #aaa; width:160px; height:50px;"></div>
+          <p style="font-size:11px; color:#555; margin:4px 0;">${receipt.issuedBy}</p>
+        </div>
+      </div>
+
+      <hr style="border:1px dashed #ccc; margin-top:20px;" />
+      <p style="text-align:center; font-size:10px; color:#999; margin-top:4px;">
+        Generated by PO Print Management System | ${new Date().toLocaleString()}
+      </p>
+    </div>
+  `;
+}
 
 export default function HandoverReceipts() {
   const { handoverReceipts, pos } = useApp();
   const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState([]); // multi-select for bulk print
 
   const filteredReceipts = useMemo(() => {
     if (!search) return handoverReceipts;
@@ -27,60 +120,63 @@ export default function HandoverReceipts() {
     );
   }, [handoverReceipts, search]);
 
-  // Get current status of POs in a receipt
   const getPOCurrentStatus = (poId) => {
     const po = pos.find(p => p.id === poId);
     return po?.poStatus || 'UNKNOWN';
   };
 
+  const handleSelectAll = () => {
+    if (selected.length === filteredReceipts.length) {
+      setSelected([]);
+    } else {
+      setSelected(filteredReceipts.map(r => r.id));
+    }
+  };
+
+  const handleSelect = (id) => {
+    setSelected(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  // Print single receipt
   const handlePrintReceipt = (receipt) => {
+    handlePrintMultiple([receipt]);
+  };
+
+  // Print multiple receipts — all on ONE document, page break between each
+  const handlePrintMultiple = (receipts) => {
     const printWindow = window.open('', '_blank');
-    const posTable = receipt.pos.map(p =>
-      `<tr>
-        <td style="border:1px solid #ddd;padding:8px;">${p.ordNo}</td>
-        <td style="border:1px solid #ddd;padding:8px;">${p.styleNo}</td>
-        <td style="border:1px solid #ddd;padding:8px;">${p.buyerName}</td>
-        <td style="border:1px solid #ddd;padding:8px;">${p.prodQty}</td>
-        <td style="border:1px solid #ddd;padding:8px;">${p.ordDt}</td>
-      </tr>`
+    const bodies = receipts.map((r, idx) =>
+      buildReceiptHTML(r, idx, receipts.length)
     ).join('');
 
     printWindow.document.write(`
       <html>
-        <head><title>Handover Receipt - ${receipt.karigar}</title></head>
-        <body style="font-family:Arial,sans-serif;padding:20px;">
-          <h2 style="text-align:center;">HANDOVER RECEIPT</h2>
-          <hr/>
-          <p><strong>Karigar:</strong> ${receipt.karigar}</p>
-          <p><strong>Issued By:</strong> ${receipt.issuedBy}</p>
-          <p><strong>Date & Time:</strong> ${new Date(receipt.issuedAt).toLocaleString()}</p>
-          <p><strong>Total POs:</strong> ${receipt.poCount} | <strong>Total Qty:</strong> ${receipt.totalQty}</p>
-          <hr/>
-          <table style="width:100%;border-collapse:collapse;margin-top:10px;">
-            <thead>
-              <tr style="background:#f5f5f5;">
-                <th style="border:1px solid #ddd;padding:8px;">Ord No</th>
-                <th style="border:1px solid #ddd;padding:8px;">Style No</th>
-                <th style="border:1px solid #ddd;padding:8px;">Buyer</th>
-                <th style="border:1px solid #ddd;padding:8px;">Qty</th>
-                <th style="border:1px solid #ddd;padding:8px;">Date</th>
-              </tr>
-            </thead>
-            <tbody>${posTable}</tbody>
-          </table>
-          <div style="margin-top:30px;">
-            <p><strong>Karigar Signature:</strong></p>
-            <img src="${receipt.signature}" style="max-width:300px;border:1px solid #ddd;padding:5px;" />
-          </div>
-          <hr style="margin-top:30px;"/>
-          <p style="text-align:center;color:#666;font-size:12px;">
-            Receipt ID: ${receipt.id} | Generated by PO Print Management System
-          </p>
+        <head>
+          <title>Handover Receipts (${receipts.length})</title>
+          <style>
+            body { margin: 0; padding: 0; }
+            @media print {
+              @page { margin: 15mm; size: A4; }
+            }
+          </style>
+        </head>
+        <body>
+          ${bodies}
         </body>
       </html>
     `);
     printWindow.document.close();
-    printWindow.print();
+    // Wait for images (signatures) to load before printing
+    printWindow.onload = () => printWindow.print();
+    setTimeout(() => printWindow.print(), 800);
+  };
+
+  const handlePrintSelected = () => {
+    const receiptsToPrint = filteredReceipts.filter(r => selected.includes(r.id));
+    if (receiptsToPrint.length === 0) return;
+    handlePrintMultiple(receiptsToPrint);
   };
 
   return (
@@ -90,22 +186,8 @@ export default function HandoverReceipts() {
         Handover Receipts
       </Typography>
       <Typography color="text.secondary" gutterBottom>
-        View all past handover records with PO details and digital signatures
+        View, search and print handover receipts with digital signatures
       </Typography>
-
-      {/* Search */}
-      <Paper sx={{ p: 2, mb: 3 }}>
-        <TextField
-          fullWidth
-          size="small"
-          placeholder="Search by karigar name, PO number, style, buyer..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          InputProps={{
-            startAdornment: <InputAdornment position="start"><Search /></InputAdornment>
-          }}
-        />
-      </Paper>
 
       {/* Summary Cards */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
@@ -151,7 +233,56 @@ export default function HandoverReceipts() {
         </Grid>
       </Grid>
 
-      {/* Receipts List */}
+      {/* Search + Bulk Print Bar */}
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
+          <TextField
+            fullWidth
+            size="small"
+            placeholder="Search by karigar, PO number, style, buyer..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            InputProps={{
+              startAdornment: <InputAdornment position="start"><Search /></InputAdornment>
+            }}
+          />
+          <Stack direction="row" spacing={1} flexShrink={0}>
+            <Tooltip title={selected.length === filteredReceipts.length ? 'Deselect All' : 'Select All'}>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={handleSelectAll}
+                startIcon={selected.length === filteredReceipts.length ? <Deselect /> : <SelectAll />}
+              >
+                {selected.length === filteredReceipts.length ? 'Deselect All' : 'Select All'}
+              </Button>
+            </Tooltip>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<PrintIcon />}
+              onClick={handlePrintSelected}
+              disabled={selected.length === 0}
+              color="primary"
+            >
+              Print Selected ({selected.length})
+            </Button>
+          </Stack>
+        </Stack>
+
+        {selected.length > 0 && (
+          <Box sx={{ mt: 1 }}>
+            <Chip
+              label={`${selected.length} receipt(s) selected — will print on ${selected.length} page(s)`}
+              color="primary"
+              size="small"
+              onDelete={() => setSelected([])}
+            />
+          </Box>
+        )}
+      </Paper>
+
+      {/* Receipts Table */}
       {filteredReceipts.length === 0 ? (
         <Alert severity="info">
           {handoverReceipts.length === 0
@@ -163,37 +294,51 @@ export default function HandoverReceipts() {
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell>Receipt ID</TableCell>
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    checked={selected.length === filteredReceipts.length && filteredReceipts.length > 0}
+                    indeterminate={selected.length > 0 && selected.length < filteredReceipts.length}
+                    onChange={handleSelectAll}
+                  />
+                </TableCell>
                 <TableCell>Karigar (Factory)</TableCell>
                 <TableCell>PO Count</TableCell>
                 <TableCell>Total Qty</TableCell>
                 <TableCell>Issued By</TableCell>
                 <TableCell>Date & Time</TableCell>
                 <TableCell>Signature</TableCell>
-                <TableCell>Action</TableCell>
+                <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {filteredReceipts.map(receipt => (
-                <TableRow key={receipt.id} hover sx={{ cursor: 'pointer' }} onClick={() => setSelectedReceipt(receipt)}>
-                  <TableCell>
-                    <Typography variant="body2" fontFamily="monospace" fontSize="0.75rem">
-                      {receipt.id}
-                    </Typography>
+                <TableRow
+                  key={receipt.id}
+                  hover
+                  selected={selected.includes(receipt.id)}
+                  sx={{ cursor: 'pointer' }}
+                >
+                  <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+                    <Checkbox
+                      checked={selected.includes(receipt.id)}
+                      onChange={() => handleSelect(receipt.id)}
+                    />
                   </TableCell>
-                  <TableCell>
+                  <TableCell onClick={() => setSelectedReceipt(receipt)}>
                     <Stack direction="row" spacing={1} alignItems="center">
                       <Person fontSize="small" color="action" />
                       <Typography fontWeight={600}>{receipt.karigar}</Typography>
                     </Stack>
                   </TableCell>
-                  <TableCell>
+                  <TableCell onClick={() => setSelectedReceipt(receipt)}>
                     <Chip label={receipt.poCount} size="small" color="primary" />
                   </TableCell>
-                  <TableCell>{receipt.totalQty}</TableCell>
-                  <TableCell>{receipt.issuedBy}</TableCell>
-                  <TableCell>{new Date(receipt.issuedAt).toLocaleString()}</TableCell>
-                  <TableCell>
+                  <TableCell onClick={() => setSelectedReceipt(receipt)}>{receipt.totalQty}</TableCell>
+                  <TableCell onClick={() => setSelectedReceipt(receipt)}>{receipt.issuedBy}</TableCell>
+                  <TableCell onClick={() => setSelectedReceipt(receipt)}>
+                    {new Date(receipt.issuedAt).toLocaleString()}
+                  </TableCell>
+                  <TableCell onClick={() => setSelectedReceipt(receipt)}>
                     {receipt.signature ? (
                       <Box
                         component="img"
@@ -205,14 +350,16 @@ export default function HandoverReceipts() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<PrintIcon />}
-                      onClick={(e) => { e.stopPropagation(); handlePrintReceipt(receipt); }}
-                    >
-                      Print
-                    </Button>
+                    <Stack direction="row" spacing={1}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<PrintIcon />}
+                        onClick={(e) => { e.stopPropagation(); handlePrintReceipt(receipt); }}
+                      >
+                        Print
+                      </Button>
+                    </Stack>
                   </TableCell>
                 </TableRow>
               ))}
@@ -231,11 +378,11 @@ export default function HandoverReceipts() {
                   <Receipt sx={{ verticalAlign: 'middle', mr: 1 }} />
                   Handover Receipt
                 </Typography>
-                <Chip label={selectedReceipt.id} size="small" variant="outlined" />
+                <Chip label={selectedReceipt.id} size="small" variant="outlined" fontFamily="monospace" />
               </Stack>
             </DialogTitle>
             <DialogContent>
-              {/* Receipt Info */}
+              {/* Info */}
               <Paper sx={{ p: 2, mb: 3, bgcolor: 'action.hover' }}>
                 <Grid container spacing={2}>
                   <Grid item xs={6} sm={3}>
@@ -260,10 +407,8 @@ export default function HandoverReceipts() {
                 </Grid>
               </Paper>
 
-              {/* PO Details Table */}
-              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                PO Details
-              </Typography>
+              {/* PO Table */}
+              <Typography variant="subtitle1" fontWeight={600} gutterBottom>PO Details</Typography>
               <TableContainer sx={{ mb: 3 }}>
                 <Table size="small">
                   <TableHead>
@@ -274,8 +419,8 @@ export default function HandoverReceipts() {
                       <TableCell>EO No</TableCell>
                       <TableCell>Buyer</TableCell>
                       <TableCell>Qty</TableCell>
-                      <TableCell>Order Date</TableCell>
-                      <TableCell>Current Status</TableCell>
+                      <TableCell>Date</TableCell>
+                      <TableCell>Status</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -294,10 +439,7 @@ export default function HandoverReceipts() {
                           <Chip
                             label={getPOCurrentStatus(po.id)}
                             size="small"
-                            color={
-                              getPOCurrentStatus(po.id) === 'COMPLETED' ? 'success' :
-                              getPOCurrentStatus(po.id) === 'ISSUED' ? 'secondary' : 'default'
-                            }
+                            color={getPOCurrentStatus(po.id) === 'COMPLETED' ? 'success' : getPOCurrentStatus(po.id) === 'ISSUED' ? 'secondary' : 'default'}
                           />
                         </TableCell>
                       </TableRow>
@@ -306,44 +448,24 @@ export default function HandoverReceipts() {
                 </Table>
               </TableContainer>
 
-              {/* Digital Signature */}
+              {/* Signature */}
               <Divider sx={{ mb: 2 }} />
-              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                Digital Signature
-              </Typography>
+              <Typography variant="subtitle1" fontWeight={600} gutterBottom>Digital Signature</Typography>
               {selectedReceipt.signature ? (
-                <Box
-                  sx={{
-                    border: '2px solid',
-                    borderColor: 'divider',
-                    borderRadius: 2,
-                    p: 2,
-                    textAlign: 'center',
-                    bgcolor: 'white',
-                    maxWidth: 400,
-                  }}
-                >
-                  <img
-                    src={selectedReceipt.signature}
-                    alt="Karigar Signature"
-                    style={{ maxWidth: '100%', height: 'auto' }}
-                  />
+                <Box sx={{ border: '2px solid', borderColor: 'divider', borderRadius: 2, p: 2, textAlign: 'center', bgcolor: 'white', maxWidth: 400 }}>
+                  <img src={selectedReceipt.signature} alt="Karigar Signature" style={{ maxWidth: '100%', height: 'auto' }} />
                   <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1 }}>
                     Signed by: {selectedReceipt.karigar} | {new Date(selectedReceipt.issuedAt).toLocaleString()}
                   </Typography>
                 </Box>
               ) : (
-                <Alert severity="warning">No digital signature was captured for this handover.</Alert>
+                <Alert severity="warning">No digital signature captured.</Alert>
               )}
             </DialogContent>
             <DialogActions>
               <Button onClick={() => setSelectedReceipt(null)}>Close</Button>
-              <Button
-                variant="contained"
-                startIcon={<PrintIcon />}
-                onClick={() => handlePrintReceipt(selectedReceipt)}
-              >
-                Print Receipt
+              <Button variant="contained" startIcon={<PrintIcon />} onClick={() => handlePrintReceipt(selectedReceipt)}>
+                Print This Receipt
               </Button>
             </DialogActions>
           </>
