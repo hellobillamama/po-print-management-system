@@ -230,20 +230,40 @@ export function AppProvider({ children }) {
 
   const getStats = useCallback(() => {
     const today = new Date().toISOString().split('T')[0];
-    const todayPOs = pos.filter(p => p.uploadedAt?.startsWith(today));
     const now = Date.now();
+
+    // Active POs = everything EXCEPT completed
+    const activePOs = pos.filter(p => p.poStatus !== 'COMPLETED');
+    const todayUploaded = pos.filter(p => p.uploadedAt?.startsWith(today) && p.poStatus !== 'COMPLETED').length;
+
     return {
-      totalPOs: pos.length,
-      todayUploaded: todayPOs.length,
-      approved: pos.filter(p => p.approvalStatus === 'Approved').length,
-      pendingPrint: pos.filter(p => p.poStatus === 'PENDING' && p.approvalStatus === 'Approved').length,
-      printed: pos.filter(p => p.poStatus === 'PRINTED').length,
-      issued: pos.filter(p => p.poStatus === 'ISSUED').length,
+      // Total active (completed excluded)
+      totalPOs: activePOs.length,
+      totalAll: pos.length,                       // includes completed (for reference)
       completed: pos.filter(p => p.poStatus === 'COMPLETED').length,
-      highPriority: pos.filter(p => p.priority === 'HIGH').length,
+
+      todayUploaded,
+
+      // All counts below exclude COMPLETED
+      approved: activePOs.filter(p => p.approvalStatus === 'Approved').length,
+      notApproved: activePOs.filter(p => p.approvalStatus === 'Not Approved').length,
+      pendingPrint: activePOs.filter(p => p.poStatus === 'PENDING' && p.approvalStatus === 'Approved').length,
+      printed: activePOs.filter(p => p.poStatus === 'PRINTED').length,
+      issued: activePOs.filter(p => p.poStatus === 'ISSUED').length,
+      highPriority: activePOs.filter(p => p.priority === 'HIGH').length,
       reprintAttempts: reprintLog.length,
-      slaBreached: pos.filter(p => p.poStatus === 'PRINTED' && p.slaDueDate && now > new Date(p.slaDueDate).getTime()).length,
-      delayed: pos.filter(p => p.poStatus === 'PENDING' && p.approvalStatus === 'Approved' && (now - new Date(p.uploadedAt).getTime()) / (1000*60*60*24) > 2).length,
+
+      // SLA breached: printed but not issued within 2 days (active only)
+      slaBreached: activePOs.filter(p =>
+        p.poStatus === 'PRINTED' && p.slaDueDate && now > new Date(p.slaDueDate).getTime()
+      ).length,
+
+      // Delayed: approved but not printed for 2+ days (active only)
+      delayed: activePOs.filter(p =>
+        p.poStatus === 'PENDING' &&
+        p.approvalStatus === 'Approved' &&
+        (now - new Date(p.uploadedAt).getTime()) / (1000 * 60 * 60 * 24) > 2
+      ).length,
     };
   }, [pos, reprintLog]);
 

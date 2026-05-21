@@ -80,8 +80,9 @@ export default function Dashboard() {
 
   const karigarWorkload = useMemo(() => {
     const map = {};
-    pos.filter(p => p.karigar).forEach(p => {
-      if (!map[p.karigar]) map[p.karigar] = { name: p.karigar, PENDING: 0, PRINTED: 0, ISSUED: 0, COMPLETED: 0, qty: 0 };
+    // Exclude completed POs from workload
+    pos.filter(p => p.karigar && p.poStatus !== 'COMPLETED').forEach(p => {
+      if (!map[p.karigar]) map[p.karigar] = { name: p.karigar, PENDING: 0, PRINTED: 0, ISSUED: 0, qty: 0 };
       map[p.karigar][p.poStatus] = (map[p.karigar][p.poStatus] || 0) + 1;
       map[p.karigar].qty += p.prodQty || 0;
     });
@@ -142,13 +143,13 @@ export default function Dashboard() {
       `${'='.repeat(50)}`,
       ``,
       `📊 SUMMARY`,
-      `  Total POs in System  : ${stats.totalPOs}`,
+      `  Total Active POs     : ${stats.totalPOs}`,
+      `  (Completed/Archived) : ${stats.completed}`,
       `  Today Uploaded       : ${stats.todayUploaded}`,
       `  Approved             : ${stats.approved}`,
       `  Pending Print        : ${stats.pendingPrint}`,
-      `  Printed Today        : ${stats.printed}`,
+      `  Printed              : ${stats.printed}`,
       `  Issued to Karigar    : ${stats.issued}`,
-      `  Completed            : ${stats.completed}`,
       `  SLA Breached         : ${slaBreachedPOs.length}`,
       `  Delayed (>2 days)    : ${delayedPOs.length}`,
       `  Reprint Requests     : ${reprintLog.length}`,
@@ -205,7 +206,8 @@ export default function Dashboard() {
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h5" fontWeight={700}>Dashboard</Typography>
         <Stack direction="row" spacing={1}>
-          <Chip label={`Total: ${stats.totalPOs} POs`} color="primary" />
+          <Chip label={`Active: ${stats.totalPOs} POs`} color="primary" />
+          <Chip label={`Completed: ${stats.completed}`} color="success" variant="outlined" />
           <Chip label={new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })} variant="outlined" />
         </Stack>
       </Box>
@@ -241,24 +243,25 @@ export default function Dashboard() {
         <Box>
           {/* Stat Cards */}
           <Grid container spacing={2} sx={{ mb: 3 }}>
-            <Grid item xs={6} sm={4} md={3}><StatCard label="Today Uploaded" value={stats.todayUploaded} icon={<CloudUpload fontSize="large"/>} color="#2196f3" sub={`Total: ${stats.totalPOs}`}/></Grid>
-            <Grid item xs={6} sm={4} md={3}><StatCard label="Approved" value={stats.approved} icon={<CheckCircle fontSize="large"/>} color="#4caf50" sub={`${stats.totalPOs > 0 ? Math.round(stats.approved/stats.totalPOs*100) : 0}% of total`}/></Grid>
+            <Grid item xs={6} sm={4} md={3}><StatCard label="Today Uploaded" value={stats.todayUploaded} icon={<CloudUpload fontSize="large"/>} color="#2196f3" sub={`Active: ${stats.totalPOs}`}/></Grid>
+            <Grid item xs={6} sm={4} md={3}><StatCard label="Approved" value={stats.approved} icon={<CheckCircle fontSize="large"/>} color="#4caf50" sub={`${stats.totalPOs > 0 ? Math.round(stats.approved/stats.totalPOs*100) : 0}% of active`}/></Grid>
             <Grid item xs={6} sm={4} md={3}><StatCard label="Pending Print" value={stats.pendingPrint} icon={<Print fontSize="large"/>} color="#ff9800" warn={stats.pendingPrint > 20}/></Grid>
             <Grid item xs={6} sm={4} md={3}><StatCard label="Printed" value={stats.printed} icon={<Print fontSize="large"/>} color="#00bcd4" sub="Awaiting handover"/></Grid>
             <Grid item xs={6} sm={4} md={3}><StatCard label="Issued to Karigar" value={stats.issued} icon={<Handshake fontSize="large"/>} color="#9c27b0"/></Grid>
-            <Grid item xs={6} sm={4} md={3}><StatCard label="Completed" value={stats.completed} icon={<Done fontSize="large"/>} color="#4caf50" sub={`${stats.totalPOs > 0 ? Math.round(stats.completed/stats.totalPOs*100) : 0}% done`}/></Grid>
-            <Grid item xs={6} sm={4} md={3}><StatCard label="SLA Breached" value={slaBreachedPOs.length} icon={<AccessTime fontSize="large"/>} color="#f44336" warn={slaBreachedPOs.length > 0} sub="Need immediate action"/></Grid>
-            <Grid item xs={6} sm={4} md={3}><StatCard label="Reprint Requests" value={reprintLog.length} icon={<Replay fontSize="large"/>} color="#ff5722"/></Grid>
+            <Grid item xs={6} sm={4} md={3}><StatCard label="Completed (archived)" value={stats.completed} icon={<Done fontSize="large"/>} color="#4caf50" sub="Excluded from stats"/></Grid>
+            <Grid item xs={6} sm={4} md={3}><StatCard label="SLA Breached" value={stats.slaBreached} icon={<AccessTime fontSize="large"/>} color="#f44336" warn={stats.slaBreached > 0} sub="Need immediate action"/></Grid>
+            <Grid item xs={6} sm={4} md={3}><StatCard label="Reprint Requests" value={stats.reprintAttempts} icon={<Replay fontSize="large"/>} color="#ff5722"/></Grid>
           </Grid>
 
           {/* Progress Funnel */}
           <Paper sx={{ p: 3, mb: 3 }}>
-            <Typography variant="h6" fontWeight={600} gutterBottom>Production Flow Progress</Typography>
-            <ProgressRow label="Approved → Ready to Print" value={stats.approved} total={stats.totalPOs} color="#4caf50" />
+            <Typography variant="h6" fontWeight={600} gutterBottom>
+              Active Production Flow <Chip label={`${stats.completed} completed (archived)`} size="small" color="success" sx={{ ml: 1 }} />
+            </Typography>
+            <ProgressRow label="Approved (active)" value={stats.approved} total={stats.totalPOs} color="#4caf50" />
             <ProgressRow label="Pending Print" value={stats.pendingPrint} total={stats.approved} color="#ff9800" />
             <ProgressRow label="Printed → Awaiting Handover" value={stats.printed} total={stats.approved} color="#2196f3" />
             <ProgressRow label="Issued to Karigar" value={stats.issued} total={stats.approved} color="#9c27b0" />
-            <ProgressRow label="Completed" value={stats.completed} total={stats.approved} color="#4caf50" />
           </Paper>
 
           {/* Charts Row */}
@@ -502,13 +505,13 @@ export default function Dashboard() {
             {/* Summary Boxes */}
             <Grid container spacing={2} sx={{ mb: 3 }}>
               {[
-                { label: 'Total POs', value: stats.totalPOs, color: '#2196f3' },
+                { label: 'Active POs', value: stats.totalPOs, color: '#2196f3' },
                 { label: 'Today Uploaded', value: stats.todayUploaded, color: '#00bcd4' },
                 { label: 'Approved', value: stats.approved, color: '#4caf50' },
                 { label: 'Pending Print', value: stats.pendingPrint, color: '#ff9800' },
                 { label: 'Printed', value: stats.printed, color: '#2196f3' },
                 { label: 'Issued', value: stats.issued, color: '#9c27b0' },
-                { label: 'Completed', value: stats.completed, color: '#4caf50' },
+                { label: 'Completed (archived)', value: stats.completed, color: '#4caf50' },
                 { label: 'SLA Breached', value: slaBreachedPOs.length, color: '#f44336' },
                 { label: 'Delayed', value: delayedPOs.length, color: '#ff5722' },
                 { label: 'Reprint Requests', value: reprintLog.length, color: '#795548' },
