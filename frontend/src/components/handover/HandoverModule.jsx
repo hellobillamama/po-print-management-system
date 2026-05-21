@@ -9,6 +9,7 @@ import { Handshake, Draw, ExpandMore, Warning, AccessTime } from '@mui/icons-mat
 import SignatureCanvas from 'react-signature-canvas';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
+import POSearchBar from '../common/POSearchBar';
 
 export default function HandoverModule() {
   const { pos, issuePOs, SLA_DAYS } = useApp();
@@ -16,12 +17,13 @@ export default function HandoverModule() {
   const [selected, setSelected] = useState([]);
   const [showSignature, setShowSignature] = useState(false);
   const [activeFactory, setActiveFactory] = useState(null);
+  const [filteredPos, setFilteredPos] = useState(pos);
   const sigRef = useRef(null);
 
   // Only show PRINTED POs (ready for handover)
   const printedPOs = useMemo(() =>
-    pos.filter(p => p.poStatus === 'PRINTED'),
-    [pos]
+    filteredPos.filter(p => p.poStatus === 'PRINTED'),
+    [filteredPos]
   );
 
   // Group printed POs by Factory (karigar)
@@ -110,6 +112,7 @@ export default function HandoverModule() {
       <Typography color="text.secondary" gutterBottom>
         Issue printed POs to karigars (grouped by Factory). Karigar name = Factory name. SLA: {SLA_DAYS} days after printing.
       </Typography>
+      <POSearchBar pos={pos} onFilter={setFilteredPos} defaultStatus="PRINTED" />
 
       {/* Summary Bar */}
       {totalSelected > 0 && (

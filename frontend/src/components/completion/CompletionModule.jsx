@@ -7,6 +7,7 @@ import {
 import { CheckCircle, Done } from '@mui/icons-material';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
+import POSearchBar from '../common/POSearchBar';
 
 export default function CompletionModule() {
   const { pos, completePOs } = useApp();
@@ -14,15 +15,16 @@ export default function CompletionModule() {
   const [selected, setSelected] = useState([]);
   const [showComplete, setShowComplete] = useState(false);
   const [remarks, setRemarks] = useState('');
+  const [filteredPos, setFilteredPos] = useState(pos);
 
   const issuedPOs = useMemo(() =>
-    pos.filter(p => p.poStatus === 'ISSUED'),
-    [pos]
+    filteredPos.filter(p => p.poStatus === 'ISSUED'),
+    [filteredPos]
   );
 
   const completedPOs = useMemo(() =>
-    pos.filter(p => p.poStatus === 'COMPLETED'),
-    [pos]
+    filteredPos.filter(p => p.poStatus === 'COMPLETED'),
+    [filteredPos]
   );
 
   const handleSelectAll = (e) => {
@@ -53,6 +55,7 @@ export default function CompletionModule() {
       <Typography color="text.secondary" gutterBottom>
         Mark issued POs as completed when work is done
       </Typography>
+      <POSearchBar pos={pos} onFilter={setFilteredPos} defaultStatus="ISSUED" />
 
       {/* Status Flow */}
       <Paper sx={{ p: 2, mb: 3, bgcolor: 'action.hover' }}>

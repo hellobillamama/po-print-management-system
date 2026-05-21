@@ -8,6 +8,7 @@ import { Print, Lock, Warning, QrCode } from '@mui/icons-material';
 import { QRCodeSVG } from 'qrcode.react';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
+import POSearchBar from '../common/POSearchBar';
 
 export default function PrintModule() {
   const { pos, printPOs, requestReprint } = useApp();
@@ -18,15 +19,16 @@ export default function PrintModule() {
   const [reprintReason, setReprintReason] = useState('');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [filteredPos, setFilteredPos] = useState(pos);
 
   const printablePOs = useMemo(() =>
-    pos.filter(p => p.approvalStatus === 'Approved' && p.poStatus === 'PENDING'),
-    [pos]
+    filteredPos.filter(p => p.approvalStatus === 'Approved' && p.poStatus === 'PENDING'),
+    [filteredPos]
   );
 
   const printedPOs = useMemo(() =>
-    pos.filter(p => p.poStatus === 'PRINTED' || p.poStatus === 'ISSUED' || p.poStatus === 'COMPLETED'),
-    [pos]
+    filteredPos.filter(p => p.poStatus === 'PRINTED' || p.poStatus === 'ISSUED' || p.poStatus === 'COMPLETED'),
+    [filteredPos]
   );
 
   const handleSelectAll = (e) => {
@@ -55,6 +57,7 @@ export default function PrintModule() {
   return (
     <Box>
       <Typography variant="h5" fontWeight={700} gutterBottom>Print Management</Typography>
+      <POSearchBar pos={pos} onFilter={setFilteredPos} defaultStatus="PENDING" />
 
       {/* Printable POs Section */}
       <Paper sx={{ p: 2, mb: 3 }}>

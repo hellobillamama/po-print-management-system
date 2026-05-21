@@ -5,13 +5,15 @@ import {
 } from '@mui/material';
 import { History, Print, Handshake, CloudUpload, Replay, Search } from '@mui/icons-material';
 import { useApp } from '../../contexts/AppContext';
+import POSearchBar from '../common/POSearchBar';
 
 export default function LogsModule() {
-  const { activityLog, printLog, issueLog, reprintLog } = useApp();
+  const { activityLog, pos } = useApp();
   const [tabValue, setTabValue] = useState(0);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [filteredPos, setFilteredPos] = useState(pos);
 
   const filteredLogs = useMemo(() => {
     let logs = activityLog;
@@ -48,6 +50,7 @@ export default function LogsModule() {
       <Typography color="text.secondary" gutterBottom>
         Complete audit trail of all system activities
       </Typography>
+      <POSearchBar pos={pos} onFilter={setFilteredPos} showStatusChips={false} />
 
       <Paper sx={{ p: 2, mb: 2 }}>
         <Tabs value={tabValue} onChange={(_, v) => { setTabValue(v); setPage(0); }} variant="scrollable" scrollButtons="auto">
