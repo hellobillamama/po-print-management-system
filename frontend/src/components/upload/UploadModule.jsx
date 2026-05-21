@@ -180,16 +180,30 @@ export default function UploadModule() {
                 textAlign: 'center',
                 bgcolor: 'action.hover',
                 cursor: 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minHeight: 180,
+                width: '100%',
                 '&:hover': { bgcolor: 'action.selected' },
               }}
-              component="label"
+              onClick={() => document.getElementById('po-file-input').click()}
             >
-              <CloudUpload sx={{ fontSize: 48, color: 'primary.main', mb: 1 }} />
-              <Typography variant="h6">Drop Excel/CSV file here or click to upload</Typography>
-              <Typography variant="body2" color="text.secondary">
+              <CloudUpload sx={{ fontSize: 56, color: 'primary.main', mb: 2 }} />
+              <Typography variant="h6" fontWeight={600}>
+                Click here to select Excel/CSV file
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                 Supports .xlsx, .xls, .csv formats
               </Typography>
-              <input type="file" hidden accept=".xlsx,.xls,.csv" onChange={handleFileUpload} />
+              <input
+                id="po-file-input"
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                onChange={handleFileUpload}
+                style={{ display: 'none' }}
+              />
             </Box>
           </Box>
         )}
