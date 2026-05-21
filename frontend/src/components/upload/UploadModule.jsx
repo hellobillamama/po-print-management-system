@@ -196,14 +196,14 @@ export default function UploadModule() {
 
       {importResult && (
         <Alert
-          severity={importResult.imported > 0 ? 'success' : 'warning'}
+          severity={importResult.imported > 0 || importResult.updated > 0 ? 'success' : 'warning'}
           sx={{ mt: 2 }}
           onClose={() => setImportResult(null)}
         >
-          {importResult.imported > 0
-            ? `Successfully imported ${importResult.imported} PO(s).`
-            : 'No new POs imported.'}
-          {importResult.duplicates > 0 && ` ${importResult.duplicates} duplicate(s) skipped.`}
+          {importResult.imported > 0 && `Imported ${importResult.imported} new PO(s). `}
+          {importResult.updated > 0 && `Updated approval status for ${importResult.updated} PO(s). `}
+          {importResult.imported === 0 && importResult.updated === 0 && 'No new POs imported. '}
+          {importResult.duplicates > 0 && `${importResult.duplicates} duplicate(s) skipped.`}
         </Alert>
       )}
 

@@ -133,24 +133,54 @@ export function AppProvider({ children }) {
   }, []);
 
   const importPOs = useCallback((newPOs, user) => {
-    const existingKeys = new Set(pos.map(p => `${p.ordNo}-${p.styleNo}-${p.eoNo}`));
+    // Build map of existing POs by unique key
+    const existingMap = {};
+    pos.forEach(p => { existingMap[`${p.ordNo}-${p.styleNo}-${p.eoNo}`] = p; });
+
     const duplicates = [];
     const imported = [];
+    const updated = [];
+
     newPOs.forEach(po => {
       const key = `${po.ordNo}-${po.styleNo}-${po.eoNo}`;
-      if (existingKeys.has(key)) { duplicates.push(po); }
-      else {
+      const existing = existingMap[key];
+
+      if (existing) {
+        // Check if approval status changed (e.g., Not Approved → Approved)
+        if (existing.approvalStatus !== po.approvalStatus && existing.poStatus === 'PENDING') {
+          // UPDATE the existing PO's approval status
+          updated.push({ id: existing.id, newApproval: po.approvalStatus, oldApproval: existing.approvalStatus });
+        } else {
+          // True duplicate - same PO, same status, already processed
+          duplicates.push(po);
+        }
+      } else {
+        // Brand new PO - import it
         const newPO = { ...po, id: `PO-${Date.now()}-${Math.random().toString(36).substr(2,5)}`, poStatus: 'PENDING', printedAt: null, printedBy: null, slaDueDate: null, issuedAt: null, issuedBy: null, completedAt: null, karigar: po.factory || '', remarks: '', priority: 'NORMAL', uploadedAt: new Date().toISOString(), uploadedBy: user?.name || 'Unknown' };
         imported.push(newPO);
-        existingKeys.add(key);
+        existingMap[key] = newPO;
       }
     });
+
+    // Apply updates to existing POs (status changes)
+    if (updated.length > 0) {
+      setPOs(prev => prev.map(po => {
+        const upd = updated.find(u => u.id === po.id);
+        if (upd) return { ...po, approvalStatus: upd.newApproval };
+        return po;
+      }));
+      logActivity('STATUS_UPDATE', `Updated approval status for ${updated.length} POs`, user);
+      syncToSheets('updatePOStatus', { poIds: updated.map(u => u.id), status: 'APPROVAL_UPDATED', userData: { name: user?.name } });
+    }
+
+    // Add new POs
     if (imported.length > 0) {
       setPOs(prev => [...prev, ...imported]);
       logActivity('IMPORT', `Imported ${imported.length} POs`, user);
       syncToSheets('addPOs', { poData: imported });
     }
-    return { imported: imported.length, duplicates: duplicates.length, duplicateList: duplicates };
+
+    return { imported: imported.length, duplicates: duplicates.length, updated: updated.length, duplicateList: duplicates, updatedList: updated };
   }, [pos, syncToSheets, logActivity]);
 
   const printPOs = useCallback((poIds, user) => {
