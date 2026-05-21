@@ -2,13 +2,15 @@ import { createContext, useContext, useState, useCallback } from 'react';
 
 const AppContext = createContext(null);
 
+// SLA: 2 days after printing to issue to karigar
+const SLA_DAYS = 2;
+
 // Initial demo data
 const generateDemoPOs = () => {
   const buyers = ['Tanishq', 'Kalyan', 'Malabar', 'PC Jeweller', 'Senco Gold'];
-  const karigars = ['Ramesh Kumar', 'Sunil Verma', 'Anil Shah', 'Vijay Patel', 'Deepak Soni'];
   const statuses = ['Approved', 'Not Approved', 'Pending'];
   const poStatuses = ['PENDING', 'PRINTED', 'ISSUED', 'COMPLETED'];
-  const factories = ['INHOUSE KARIGAR', 'OUTSOURCE', 'MAIN FACTORY'];
+  const factories = ['RAMESH KARIGAR', 'SUNIL KARIGAR', 'ANIL KARIGAR', 'VIJAY KARIGAR', 'DEEPAK KARIGAR'];
 
   const pos = [];
   for (let i = 1; i <= 50; i++) {
@@ -17,12 +19,13 @@ const generateDemoPOs = () => {
     const poStatus = isApproved
       ? poStatuses[Math.floor(Math.random() * 4)]
       : 'PENDING';
+    const factory = factories[Math.floor(Math.random() * 5)];
 
     pos.push({
       id: `PO-${10000 + i}`,
       ordNo: `${13900 + i}`,
       ordType: 'ZARI',
-      factory: factories[Math.floor(Math.random() * 3)],
+      factory,
       ordDt: new Date(2025, 10, Math.floor(Math.random() * 28) + 1).toISOString().split('T')[0],
       ourRef: `${11400 + i}`,
       eoNo: `PIDG250${30 + (i % 10)}`,
@@ -31,9 +34,13 @@ const generateDemoPOs = () => {
       approvalStatus,
       poStatus,
       buyerName: buyers[Math.floor(Math.random() * 5)],
-      karigar: isApproved && poStatus !== 'PENDING' ? karigars[Math.floor(Math.random() * 5)] : '',
+      // Karigar = Factory name (auto-filled)
+      karigar: factory,
       printedAt: poStatus !== 'PENDING' && isApproved ? new Date(2025, 10, 15).toISOString() : null,
       printedBy: poStatus !== 'PENDING' && isApproved ? 'Print Operator' : null,
+      slaDueDate: poStatus !== 'PENDING' && isApproved
+        ? new Date(2025, 10, 17).toISOString() // 2 days after print
+        : null,
       issuedAt: poStatus === 'ISSUED' || poStatus === 'COMPLETED' ? new Date(2025, 10, 16).toISOString() : null,
       issuedBy: poStatus === 'ISSUED' || poStatus === 'COMPLETED' ? 'Production Manager' : null,
       completedAt: poStatus === 'COMPLETED' ? new Date(2025, 10, 18).toISOString() : null,
@@ -55,10 +62,8 @@ export function AppProvider({ children }) {
   const [completedLog, setCompletedLog] = useState([]);
   const [reprintLog, setReprintLog] = useState([]);
   const [activityLog, setActivityLog] = useState([]);
-  const [karigars] = useState([
-    'Ramesh Kumar', 'Sunil Verma', 'Anil Shah', 'Vijay Patel', 'Deepak Soni',
-    'Mohan Lal', 'Ravi Sharma', 'Gopal Das', 'Kishan Patel', 'Bharat Singh'
-  ]);
+  // Handover receipts - stores complete record of each handover with signature
+  const [handoverReceipts, setHandoverReceipts] = useState([]);
   const [notifications, setNotifications] = useState([]);
 
   const addNotification = useCallback((message, type = 'info') => {
@@ -82,13 +87,15 @@ export function AppProvider({ children }) {
         imported.push({
           ...po,
           id: `PO-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-          poStatus: po.approvalStatus === 'Approved' ? 'PENDING' : 'PENDING',
+          poStatus: 'PENDING',
           printedAt: null,
           printedBy: null,
+          slaDueDate: null,
           issuedAt: null,
           issuedBy: null,
           completedAt: null,
-          karigar: '',
+          // Karigar auto-filled from Factory name
+          karigar: po.factory || '',
           remarks: '',
           priority: 'NORMAL',
           uploadedAt: new Date().toISOString(),
@@ -107,34 +114,64 @@ export function AppProvider({ children }) {
   }, [pos]);
 
   const printPOs = useCallback((poIds, user) => {
-    const now = new Date().toISOString();
+    const now = new Date();
+    const nowISO = now.toISOString();
+    // SLA: 2 days from print date
+    const slaDate = new Date(now.getTime() + SLA_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
     setPOs(prev =>
       prev.map(po =>
         poIds.includes(po.id) && po.poStatus === 'PENDING' && po.approvalStatus === 'Approved'
-          ? { ...po, poStatus: 'PRINTED', printedAt: now, printedBy: user?.name }
+          ? { ...po, poStatus: 'PRINTED', printedAt: nowISO, printedBy: user?.name, slaDueDate: slaDate }
           : po
       )
     );
 
     const logEntries = poIds.map(id => ({
       poId: id,
-      printedAt: now,
+      printedAt: nowISO,
       printedBy: user?.name,
+      slaDueDate: slaDate,
       device: navigator.userAgent,
     }));
     setPrintLog(prev => [...prev, ...logEntries]);
-    logActivity('PRINT', `Printed ${poIds.length} POs`, user);
+    logActivity('PRINT', `Printed ${poIds.length} POs (SLA: ${SLA_DAYS} days to issue)`, user);
   }, []);
 
   const issuePOs = useCallback((poIds, karigarName, signature, user) => {
     const now = new Date().toISOString();
+    const issuedPOData = pos.filter(p => poIds.includes(p.id));
+
     setPOs(prev =>
       prev.map(po =>
         poIds.includes(po.id) && po.poStatus === 'PRINTED'
-          ? { ...po, poStatus: 'ISSUED', karigar: karigarName, issuedAt: now, issuedBy: user?.name }
+          ? { ...po, poStatus: 'ISSUED', issuedAt: now, issuedBy: user?.name }
           : po
       )
     );
+
+    // Create handover receipt with full PO details and signature
+    const receipt = {
+      id: `HR-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      karigar: karigarName,
+      signature,
+      issuedAt: now,
+      issuedBy: user?.name,
+      poCount: poIds.length,
+      totalQty: issuedPOData.reduce((s, p) => s + p.prodQty, 0),
+      pos: issuedPOData.map(po => ({
+        id: po.id,
+        ordNo: po.ordNo,
+        styleNo: po.styleNo,
+        eoNo: po.eoNo,
+        prodQty: po.prodQty,
+        buyerName: po.buyerName,
+        ordDt: po.ordDt,
+        factory: po.factory,
+      })),
+    };
+
+    setHandoverReceipts(prev => [receipt, ...prev]);
 
     const logEntry = {
       poIds,
@@ -143,10 +180,12 @@ export function AppProvider({ children }) {
       issuedAt: now,
       issuedBy: user?.name,
       poCount: poIds.length,
-      totalQty: pos.filter(p => poIds.includes(p.id)).reduce((s, p) => s + p.prodQty, 0),
+      totalQty: issuedPOData.reduce((s, p) => s + p.prodQty, 0),
     };
     setIssueLog(prev => [...prev, logEntry]);
     logActivity('ISSUE', `Issued ${poIds.length} POs to ${karigarName}`, user);
+
+    return receipt;
   }, [pos]);
 
   const completePOs = useCallback((poIds, remarks, user) => {
@@ -182,7 +221,7 @@ export function AppProvider({ children }) {
     if (user?.role === 'Admin') {
       setPOs(prev =>
         prev.map(po =>
-          po.id === poId ? { ...po, poStatus: 'PENDING', printedAt: null, printedBy: null } : po
+          po.id === poId ? { ...po, poStatus: 'PENDING', printedAt: null, printedBy: null, slaDueDate: null } : po
         )
       );
     }
@@ -207,6 +246,7 @@ export function AppProvider({ children }) {
   const getStats = useCallback(() => {
     const today = new Date().toISOString().split('T')[0];
     const todayPOs = pos.filter(p => p.uploadedAt?.startsWith(today));
+    const now = Date.now();
     return {
       totalPOs: pos.length,
       todayUploaded: todayPOs.length,
@@ -217,9 +257,16 @@ export function AppProvider({ children }) {
       completed: pos.filter(p => p.poStatus === 'COMPLETED').length,
       highPriority: pos.filter(p => p.priority === 'HIGH').length,
       reprintAttempts: reprintLog.length,
+      // SLA breached: printed but not issued within 2 days
+      slaBreached: pos.filter(p => {
+        if (p.poStatus === 'PRINTED' && p.slaDueDate) {
+          return now > new Date(p.slaDueDate).getTime();
+        }
+        return false;
+      }).length,
       delayed: pos.filter(p => {
         if (p.poStatus === 'PENDING' && p.approvalStatus === 'Approved') {
-          const days = (Date.now() - new Date(p.uploadedAt).getTime()) / (1000 * 60 * 60 * 24);
+          const days = (now - new Date(p.uploadedAt).getTime()) / (1000 * 60 * 60 * 24);
           return days > 2;
         }
         return false;
@@ -231,8 +278,9 @@ export function AppProvider({ children }) {
     <AppContext.Provider
       value={{
         pos, setPOs, printLog, issueLog, completedLog, reprintLog, activityLog,
-        karigars, notifications, addNotification, importPOs, printPOs,
+        handoverReceipts, notifications, addNotification, importPOs, printPOs,
         issuePOs, completePOs, requestReprint, logActivity, getStats,
+        SLA_DAYS,
       }}
     >
       {children}

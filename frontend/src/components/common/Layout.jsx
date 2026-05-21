@@ -9,7 +9,7 @@ import { useTheme } from '@mui/material/styles';
 import {
   Menu as MenuIcon, Dashboard, CloudUpload, FilterList, Print,
   Handshake, CheckCircle, History, DarkMode, LightMode, Logout,
-  Notifications, Person
+  Notifications, Person, Receipt
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { useThemeMode } from '../../contexts/ThemeContext';
@@ -23,6 +23,7 @@ const navItems = [
   { text: 'Filter & Search', icon: <FilterList />, path: '/filter' },
   { text: 'Print Management', icon: <Print />, path: '/print' },
   { text: 'Karigar Handover', icon: <Handshake />, path: '/handover' },
+  { text: 'Handover Receipts', icon: <Receipt />, path: '/receipts' },
   { text: 'Completion', icon: <CheckCircle />, path: '/completion' },
   { text: 'Activity Logs', icon: <History />, path: '/logs' },
 ];

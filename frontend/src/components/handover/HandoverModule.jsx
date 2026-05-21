@@ -1,34 +1,65 @@
 import { useState, useMemo, useRef } from 'react';
 import {
   Box, Paper, Typography, Button, Checkbox, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, FormControl, InputLabel, Select,
-  MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Alert, Chip, Stack
+  TableContainer, TableHead, TableRow, Dialog, DialogTitle, DialogContent,
+  DialogActions, Alert, Chip, Stack, Accordion, AccordionSummary,
+  AccordionDetails, Badge
 } from '@mui/material';
-import { Handshake, Draw, CheckCircle } from '@mui/icons-material';
+import { Handshake, Draw, ExpandMore, Warning, AccessTime } from '@mui/icons-material';
 import SignatureCanvas from 'react-signature-canvas';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
 
 export default function HandoverModule() {
-  const { pos, karigars, issuePOs } = useApp();
+  const { pos, issuePOs, SLA_DAYS } = useApp();
   const { user } = useAuth();
   const [selected, setSelected] = useState([]);
-  const [karigar, setKarigar] = useState('');
   const [showSignature, setShowSignature] = useState(false);
+  const [activeFactory, setActiveFactory] = useState(null);
   const sigRef = useRef(null);
 
+  // Only show PRINTED POs (ready for handover)
   const printedPOs = useMemo(() =>
     pos.filter(p => p.poStatus === 'PRINTED'),
     [pos]
   );
 
-  const issuedPOs = useMemo(() =>
-    pos.filter(p => p.poStatus === 'ISSUED'),
-    [pos]
-  );
+  // Group printed POs by Factory (karigar)
+  const groupedByFactory = useMemo(() => {
+    const groups = {};
+    printedPOs.forEach(po => {
+      const factory = po.factory || 'UNKNOWN';
+      if (!groups[factory]) {
+        groups[factory] = [];
+      }
+      groups[factory].push(po);
+    });
+    return groups;
+  }, [printedPOs]);
 
-  const handleSelectAll = (e) => {
-    setSelected(e.target.checked ? printedPOs.map(p => p.id) : []);
+  const factories = Object.keys(groupedByFactory).sort();
+
+  // Check SLA status for a PO
+  const getSLAStatus = (po) => {
+    if (!po.slaDueDate) return 'ok';
+    const now = Date.now();
+    const due = new Date(po.slaDueDate).getTime();
+    const hoursLeft = (due - now) / (1000 * 60 * 60);
+    if (hoursLeft < 0) return 'breached';
+    if (hoursLeft < 12) return 'warning';
+    return 'ok';
+  };
+
+  // Select all POs for a factory
+  const handleSelectFactory = (factory) => {
+    const factoryPOIds = groupedByFactory[factory].map(p => p.id);
+    const allSelected = factoryPOIds.every(id => selected.includes(id));
+
+    if (allSelected) {
+      setSelected(prev => prev.filter(id => !factoryPOIds.includes(id)));
+    } else {
+      setSelected(prev => [...new Set([...prev, ...factoryPOIds])]);
+    }
   };
 
   const handleSelect = (id) => {
@@ -37,147 +68,212 @@ export default function HandoverModule() {
     );
   };
 
-  const handleIssue = () => {
-    if (!karigar || selected.length === 0) return;
+  // Start handover for a specific factory
+  const handleIssue = (factory) => {
+    const factoryPOIds = groupedByFactory[factory].map(p => p.id);
+    const selectedForFactory = selected.filter(id => factoryPOIds.includes(id));
+    if (selectedForFactory.length === 0) return;
+    setActiveFactory(factory);
     setShowSignature(true);
   };
 
   const handleConfirmIssue = () => {
+    if (!activeFactory) return;
+    const factoryPOIds = groupedByFactory[activeFactory].map(p => p.id);
+    const selectedForFactory = selected.filter(id => factoryPOIds.includes(id));
+
     const signature = sigRef.current?.toDataURL() || '';
-    issuePOs(selected, karigar, signature, user);
-    setSelected([]);
-    setKarigar('');
+    // Karigar name = Factory name (auto-filled)
+    issuePOs(selectedForFactory, activeFactory, signature, user);
+
+    // Remove issued POs from selection
+    setSelected(prev => prev.filter(id => !selectedForFactory.includes(id)));
+    setActiveFactory(null);
     setShowSignature(false);
   };
 
-  const totalQty = useMemo(() =>
-    printedPOs.filter(p => selected.includes(p.id)).reduce((sum, p) => sum + p.prodQty, 0),
-    [printedPOs, selected]
-  );
+  const getFactoryStats = (factory) => {
+    const factoryPOs = groupedByFactory[factory];
+    const selectedCount = factoryPOs.filter(p => selected.includes(p.id)).length;
+    const totalQty = factoryPOs.reduce((sum, p) => sum + p.prodQty, 0);
+    const selectedQty = factoryPOs.filter(p => selected.includes(p.id)).reduce((sum, p) => sum + p.prodQty, 0);
+    const breachedCount = factoryPOs.filter(p => getSLAStatus(p) === 'breached').length;
+    return { total: factoryPOs.length, selectedCount, totalQty, selectedQty, breachedCount };
+  };
+
+  const totalSelected = selected.length;
+  const totalSelectedQty = printedPOs.filter(p => selected.includes(p.id)).reduce((sum, p) => sum + p.prodQty, 0);
 
   return (
     <Box>
       <Typography variant="h5" fontWeight={700} gutterBottom>Karigar Handover</Typography>
       <Typography color="text.secondary" gutterBottom>
-        Issue printed POs to karigars with digital signature
+        Issue printed POs to karigars (grouped by Factory). Karigar name = Factory name. SLA: {SLA_DAYS} days after printing.
       </Typography>
 
-      <Paper sx={{ p: 2, mb: 3 }}>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mb: 2 }}>
-          <FormControl sx={{ minWidth: 200 }} size="small">
-            <InputLabel>Select Karigar</InputLabel>
-            <Select value={karigar} label="Select Karigar" onChange={(e) => setKarigar(e.target.value)}>
-              {karigars.map(k => <MenuItem key={k} value={k}>{k}</MenuItem>)}
-            </Select>
-          </FormControl>
+      {/* Summary Bar */}
+      {totalSelected > 0 && (
+        <Paper sx={{ p: 2, mb: 2, bgcolor: 'primary.main', color: 'white' }}>
+          <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+            <Typography fontWeight={600}>
+              Selected: {totalSelected} PO(s) | Total Qty: {totalSelectedQty}
+            </Typography>
+          </Stack>
+        </Paper>
+      )}
 
-          <Button
-            variant="contained"
-            startIcon={<Handshake />}
-            onClick={handleIssue}
-            disabled={selected.length === 0 || !karigar}
-            size="large"
-            color="secondary"
-          >
-            Issue to Karigar ({selected.length})
-          </Button>
+      {printedPOs.length === 0 ? (
+        <Alert severity="info" sx={{ mt: 2 }}>
+          No printed POs available for handover. Print POs first.
+        </Alert>
+      ) : (
+        <Box>
+          {factories.map(factory => {
+            const stats = getFactoryStats(factory);
+            const factoryPOs = groupedByFactory[factory];
+            const allFactorySelected = factoryPOs.every(p => selected.includes(p.id));
+            const someFactorySelected = factoryPOs.some(p => selected.includes(p.id));
 
-          {selected.length > 0 && (
-            <Stack direction="row" spacing={1}>
-              <Chip label={`Selected: ${selected.length}`} color="primary" />
-              <Chip label={`Total Qty: ${totalQty}`} color="info" />
-            </Stack>
-          )}
-        </Box>
-
-        {printedPOs.length === 0 ? (
-          <Alert severity="info">No printed POs available for handover. Print POs first.</Alert>
-        ) : (
-          <TableContainer sx={{ maxHeight: 400 }}>
-            <Table size="small" stickyHeader>
-              <TableHead>
-                <TableRow>
-                  <TableCell padding="checkbox">
+            return (
+              <Accordion key={factory} defaultExpanded={factories.length <= 5}>
+                <AccordionSummary expandIcon={<ExpandMore />}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%', pr: 2 }}>
                     <Checkbox
-                      checked={selected.length === printedPOs.length && printedPOs.length > 0}
-                      indeterminate={selected.length > 0 && selected.length < printedPOs.length}
-                      onChange={handleSelectAll}
+                      checked={allFactorySelected}
+                      indeterminate={someFactorySelected && !allFactorySelected}
+                      onChange={() => handleSelectFactory(factory)}
+                      onClick={(e) => e.stopPropagation()}
                     />
-                  </TableCell>
-                  <TableCell>Ord No</TableCell>
-                  <TableCell>Style No</TableCell>
-                  <TableCell>Buyer</TableCell>
-                  <TableCell>Qty</TableCell>
-                  <TableCell>Printed At</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {printedPOs.map(po => (
-                  <TableRow key={po.id} hover selected={selected.includes(po.id)}>
-                    <TableCell padding="checkbox">
-                      <Checkbox checked={selected.includes(po.id)} onChange={() => handleSelect(po.id)} />
-                    </TableCell>
-                    <TableCell>{po.ordNo}</TableCell>
-                    <TableCell sx={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {po.styleNo}
-                    </TableCell>
-                    <TableCell>{po.buyerName}</TableCell>
-                    <TableCell>{po.prodQty}</TableCell>
-                    <TableCell>{po.printedAt ? new Date(po.printedAt).toLocaleString() : '-'}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
-      </Paper>
-
-      {/* Already Issued Section */}
-      <Paper sx={{ p: 2 }}>
-        <Typography variant="h6" gutterBottom>
-          <CheckCircle color="success" sx={{ verticalAlign: 'middle', mr: 1 }} />
-          Recently Issued ({issuedPOs.length})
-        </Typography>
-        <TableContainer sx={{ maxHeight: 250 }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Ord No</TableCell>
-                <TableCell>Style No</TableCell>
-                <TableCell>Karigar</TableCell>
-                <TableCell>Issued At</TableCell>
-                <TableCell>Issued By</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {issuedPOs.slice(0, 20).map(po => (
-                <TableRow key={po.id}>
-                  <TableCell>{po.ordNo}</TableCell>
-                  <TableCell sx={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {po.styleNo}
-                  </TableCell>
-                  <TableCell>{po.karigar}</TableCell>
-                  <TableCell>{po.issuedAt ? new Date(po.issuedAt).toLocaleString() : '-'}</TableCell>
-                  <TableCell>{po.issuedBy}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Paper>
+                    <Typography fontWeight={600} sx={{ flex: 1 }}>
+                      {factory}
+                    </Typography>
+                    <Stack direction="row" spacing={1}>
+                      <Chip label={`${stats.total} POs`} size="small" color="primary" variant="outlined" />
+                      <Chip label={`Qty: ${stats.totalQty}`} size="small" color="info" variant="outlined" />
+                      {stats.breachedCount > 0 && (
+                        <Chip
+                          icon={<Warning />}
+                          label={`${stats.breachedCount} SLA breached`}
+                          size="small"
+                          color="error"
+                        />
+                      )}
+                      {stats.selectedCount > 0 && (
+                        <Chip label={`${stats.selectedCount} selected`} size="small" color="success" />
+                      )}
+                    </Stack>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      color="secondary"
+                      startIcon={<Handshake />}
+                      onClick={(e) => { e.stopPropagation(); handleIssue(factory); }}
+                      disabled={stats.selectedCount === 0}
+                      sx={{ ml: 1 }}
+                    >
+                      Handover ({stats.selectedCount})
+                    </Button>
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails sx={{ p: 0 }}>
+                  <TableContainer sx={{ maxHeight: 300 }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell padding="checkbox">
+                            <Checkbox
+                              checked={allFactorySelected}
+                              indeterminate={someFactorySelected && !allFactorySelected}
+                              onChange={() => handleSelectFactory(factory)}
+                            />
+                          </TableCell>
+                          <TableCell>Ord No</TableCell>
+                          <TableCell>Style No</TableCell>
+                          <TableCell>Buyer</TableCell>
+                          <TableCell>Qty</TableCell>
+                          <TableCell>Printed At</TableCell>
+                          <TableCell>SLA Status</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {factoryPOs.map(po => {
+                          const slaStatus = getSLAStatus(po);
+                          return (
+                            <TableRow
+                              key={po.id}
+                              hover
+                              selected={selected.includes(po.id)}
+                              sx={slaStatus === 'breached' ? { bgcolor: 'error.light' } : {}}
+                            >
+                              <TableCell padding="checkbox">
+                                <Checkbox
+                                  checked={selected.includes(po.id)}
+                                  onChange={() => handleSelect(po.id)}
+                                />
+                              </TableCell>
+                              <TableCell>{po.ordNo}</TableCell>
+                              <TableCell sx={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {po.styleNo}
+                              </TableCell>
+                              <TableCell>{po.buyerName}</TableCell>
+                              <TableCell>{po.prodQty}</TableCell>
+                              <TableCell>{po.printedAt ? new Date(po.printedAt).toLocaleString() : '-'}</TableCell>
+                              <TableCell>
+                                {slaStatus === 'breached' && (
+                                  <Chip icon={<Warning />} label="SLA Breached" size="small" color="error" />
+                                )}
+                                {slaStatus === 'warning' && (
+                                  <Chip icon={<AccessTime />} label="Due Soon" size="small" color="warning" />
+                                )}
+                                {slaStatus === 'ok' && po.slaDueDate && (
+                                  <Chip
+                                    icon={<AccessTime />}
+                                    label={`Due: ${new Date(po.slaDueDate).toLocaleDateString()}`}
+                                    size="small"
+                                    color="default"
+                                    variant="outlined"
+                                  />
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </AccordionDetails>
+              </Accordion>
+            );
+          })}
+        </Box>
+      )}
 
       {/* Signature Dialog */}
       <Dialog open={showSignature} onClose={() => setShowSignature(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
           <Draw sx={{ verticalAlign: 'middle', mr: 1 }} />
-          Digital Signature - {karigar}
+          Digital Signature - {activeFactory}
         </DialogTitle>
         <DialogContent>
           <Alert severity="info" sx={{ mb: 2 }}>
-            Issuing {selected.length} PO(s) to <strong>{karigar}</strong> | Total Qty: {totalQty}
+            Issuing{' '}
+            <strong>
+              {activeFactory && groupedByFactory[activeFactory]
+                ? selected.filter(id => groupedByFactory[activeFactory].map(p => p.id).includes(id)).length
+                : 0}
+            </strong>{' '}
+            PO(s) to <strong>{activeFactory}</strong>
+            {' | '}Total Qty:{' '}
+            <strong>
+              {activeFactory && groupedByFactory[activeFactory]
+                ? groupedByFactory[activeFactory]
+                    .filter(p => selected.includes(p.id))
+                    .reduce((sum, p) => sum + p.prodQty, 0)
+                : 0}
+            </strong>
           </Alert>
-          <Typography variant="body2" gutterBottom>
-            Karigar Signature (sign below):
+          <Typography variant="body2" gutterBottom fontWeight={600}>
+            Karigar ({activeFactory}) Signature:
           </Typography>
           <Box
             sx={{
@@ -203,7 +299,7 @@ export default function HandoverModule() {
           </Button>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowSignature(false)}>Cancel</Button>
+          <Button onClick={() => { setShowSignature(false); setActiveFactory(null); }}>Cancel</Button>
           <Button variant="contained" color="secondary" onClick={handleConfirmIssue}>
             Confirm Handover
           </Button>

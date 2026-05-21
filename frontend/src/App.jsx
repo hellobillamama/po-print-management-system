@@ -9,6 +9,7 @@ import UploadModule from './components/upload/UploadModule';
 import FilterModule from './components/filter/FilterModule';
 import PrintModule from './components/print/PrintModule';
 import HandoverModule from './components/handover/HandoverModule';
+import HandoverReceipts from './components/handover/HandoverReceipts';
 import CompletionModule from './components/completion/CompletionModule';
 import LogsModule from './components/logs/LogsModule';
 
@@ -40,6 +41,7 @@ function AppRoutes() {
           <Route path="filter" element={<FilterModule />} />
           <Route path="print" element={<PrintModule />} />
           <Route path="handover" element={<HandoverModule />} />
+          <Route path="receipts" element={<HandoverReceipts />} />
           <Route path="completion" element={<CompletionModule />} />
           <Route path="logs" element={<LogsModule />} />
         </Route>
