@@ -24,15 +24,27 @@ export default function UploadModule() {
   const { user } = useAuth();
 
   const parseData = useCallback((rows) => {
-    const validRows = [];
+    const validRows = [];      // Brand new POs
+    const statusUpdateRows = []; // Same PO but approval status changed
     const errorRows = [];
-    const dupeRows = [];
-    const existingKeys = new Set(pos.map(p => `${p.ordNo}-${p.styleNo}-${p.eoNo}`));
+    const trueDupeRows = [];   // Same PO, same status - real duplicates
+
+    // Build a map of existing POs: key -> {approvalStatus, poStatus}
+    const existingMap = {};
+    pos.forEach(p => {
+      existingMap[`${p.ordNo}-${p.styleNo}-${p.eoNo}`] = {
+        approvalStatus: p.approvalStatus,
+        poStatus: p.poStatus,
+      };
+    });
+
+    // Track keys already seen in this upload batch
+    const seenInBatch = new Set();
 
     rows.forEach((row, idx) => {
       const issues = [];
-      if (!row.ordNo && !row['Ord No']) issues.push('Missing Ord No');
-      if (!row.styleNo && !row['Style No']) issues.push('Missing Style No');
+      if (!row['Ord No'] && !row.ordNo) issues.push('Missing Ord No');
+      if (!row['Style No'] && !row.styleNo) issues.push('Missing Style No');
 
       const mapped = {
         factory: row.Factory || row.factory || '',
@@ -49,20 +61,34 @@ export default function UploadModule() {
 
       if (issues.length > 0) {
         errorRows.push({ ...mapped, row: idx + 1, issues });
+        return;
+      }
+
+      const key = `${mapped.ordNo}-${mapped.styleNo}-${mapped.eoNo}`;
+
+      // Skip duplicates within the same uploaded file
+      if (seenInBatch.has(key)) return;
+      seenInBatch.add(key);
+
+      const existing = existingMap[key];
+
+      if (!existing) {
+        // Brand new PO
+        validRows.push(mapped);
+      } else if (existing.approvalStatus !== mapped.approvalStatus && existing.poStatus === 'PENDING') {
+        // Same PO but approval status changed AND not yet printed/issued
+        // → Allow update
+        statusUpdateRows.push({ ...mapped, _isUpdate: true, _oldStatus: existing.approvalStatus });
       } else {
-        const key = `${mapped.ordNo}-${mapped.styleNo}-${mapped.eoNo}`;
-        if (existingKeys.has(key)) {
-          dupeRows.push({ ...mapped, row: idx + 1 });
-        } else {
-          validRows.push(mapped);
-          existingKeys.add(key);
-        }
+        // True duplicate - same PO, same status or already processed
+        trueDupeRows.push({ ...mapped, row: idx + 1, _existingStatus: existing.poStatus });
       }
     });
 
-    setParsedData(validRows);
+    // All rows to import = new + status updates
+    setParsedData([...validRows, ...statusUpdateRows]);
     setErrors(errorRows);
-    setDuplicates(dupeRows);
+    setDuplicates(trueDupeRows);
     setShowPreview(true);
   }, [pos]);
 
@@ -211,20 +237,23 @@ export default function UploadModule() {
       <Dialog open={showPreview} onClose={() => setShowPreview(false)} maxWidth="lg" fullWidth>
         <DialogTitle>Import Preview</DialogTitle>
         <DialogContent>
-          <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
-            <Chip icon={<CheckCircle />} label={`Valid: ${parsedData.length}`} color="success" />
-            <Chip
-              icon={<CheckCircle />}
-              label={`Approved: ${parsedData.filter(d => d.approvalStatus === 'Approved').length}`}
-              color="primary"
-            />
-            <Chip icon={<Warning />} label={`Duplicates: ${duplicates.length}`} color="warning" />
+          <Stack direction="row" spacing={1} sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
+            <Chip icon={<CheckCircle />} label={`New: ${parsedData.filter(d => !d._isUpdate).length}`} color="success" />
+            <Chip icon={<CheckCircle />} label={`Status Updated: ${parsedData.filter(d => d._isUpdate).length}`} color="warning" />
+            <Chip icon={<CheckCircle />} label={`Approved: ${parsedData.filter(d => d.approvalStatus === 'Approved').length}`} color="primary" />
+            <Chip icon={<Warning />} label={`True Duplicates: ${duplicates.length}`} color="default" />
             <Chip icon={<ErrorIcon />} label={`Errors: ${errors.length}`} color="error" />
           </Stack>
 
-          {duplicates.length > 0 && (
+          {parsedData.filter(d => d._isUpdate).length > 0 && (
             <Alert severity="warning" sx={{ mb: 2 }}>
-              <strong>{duplicates.length} duplicate PO(s) detected!</strong> These will be skipped.
+              <strong>{parsedData.filter(d => d._isUpdate).length} PO(s) changed from Not Approved → Approved.</strong> These will be updated.
+            </Alert>
+          )}
+
+          {duplicates.length > 0 && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <strong>{duplicates.length} PO(s) already processed (Printed/Issued/Completed).</strong> These will be skipped.
             </Alert>
           )}
 
@@ -249,7 +278,7 @@ export default function UploadModule() {
                 </TableHead>
                 <TableBody>
                   {parsedData.slice(0, 50).map((row, i) => (
-                    <TableRow key={i}>
+                    <TableRow key={i} sx={row._isUpdate ? { bgcolor: 'warning.light' } : {}}>
                       <TableCell>{row.ordNo}</TableCell>
                       <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {row.styleNo}
@@ -258,11 +287,15 @@ export default function UploadModule() {
                       <TableCell>{row.factory}</TableCell>
                       <TableCell>{row.prodQty}</TableCell>
                       <TableCell>
-                        <Chip
-                          label={row.approvalStatus}
-                          size="small"
-                          color={row.approvalStatus === 'Approved' ? 'success' : 'default'}
-                        />
+                        {row._isUpdate ? (
+                          <Stack direction="row" spacing={0.5} alignItems="center">
+                            <Chip label={row._oldStatus} size="small" color="default" />
+                            <span>→</span>
+                            <Chip label={row.approvalStatus} size="small" color="success" />
+                          </Stack>
+                        ) : (
+                          <Chip label={row.approvalStatus} size="small" color={row.approvalStatus === 'Approved' ? 'success' : 'default'} />
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
