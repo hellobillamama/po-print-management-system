@@ -1,70 +1,60 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 
 const AppContext = createContext(null);
 
 // SLA: 2 days after printing to issue to karigar
 const SLA_DAYS = 2;
 
-// Initial demo data
-const generateDemoPOs = () => {
-  const buyers = ['Tanishq', 'Kalyan', 'Malabar', 'PC Jeweller', 'Senco Gold'];
-  const statuses = ['Approved', 'Not Approved', 'Pending'];
-  const poStatuses = ['PENDING', 'PRINTED', 'ISSUED', 'COMPLETED'];
-  const factories = ['RAMESH KARIGAR', 'SUNIL KARIGAR', 'ANIL KARIGAR', 'VIJAY KARIGAR', 'DEEPAK KARIGAR'];
-
-  const pos = [];
-  for (let i = 1; i <= 50; i++) {
-    const approvalStatus = statuses[Math.floor(Math.random() * 3)];
-    const isApproved = approvalStatus === 'Approved';
-    const poStatus = isApproved
-      ? poStatuses[Math.floor(Math.random() * 4)]
-      : 'PENDING';
-    const factory = factories[Math.floor(Math.random() * 5)];
-
-    pos.push({
-      id: `PO-${10000 + i}`,
-      ordNo: `${13900 + i}`,
-      ordType: 'ZARI',
-      factory,
-      ordDt: new Date(2025, 10, Math.floor(Math.random() * 28) + 1).toISOString().split('T')[0],
-      ourRef: `${11400 + i}`,
-      eoNo: `PIDG250${30 + (i % 10)}`,
-      styleNo: `1125PIDG250${30 + (i % 10)}BRCL${String(i).padStart(2, '0')}`,
-      prodQty: Math.floor(Math.random() * 50) + 1,
-      approvalStatus,
-      poStatus,
-      buyerName: buyers[Math.floor(Math.random() * 5)],
-      // Karigar = Factory name (auto-filled)
-      karigar: factory,
-      printedAt: poStatus !== 'PENDING' && isApproved ? new Date(2025, 10, 15).toISOString() : null,
-      printedBy: poStatus !== 'PENDING' && isApproved ? 'Print Operator' : null,
-      slaDueDate: poStatus !== 'PENDING' && isApproved
-        ? new Date(2025, 10, 17).toISOString() // 2 days after print
-        : null,
-      issuedAt: poStatus === 'ISSUED' || poStatus === 'COMPLETED' ? new Date(2025, 10, 16).toISOString() : null,
-      issuedBy: poStatus === 'ISSUED' || poStatus === 'COMPLETED' ? 'Production Manager' : null,
-      completedAt: poStatus === 'COMPLETED' ? new Date(2025, 10, 18).toISOString() : null,
-      remarks: '',
-      priority: Math.random() > 0.8 ? 'HIGH' : 'NORMAL',
-      uploadedAt: new Date().toISOString(),
-      uploadedBy: 'Admin User',
-    });
-  }
-  return pos;
+// LocalStorage keys
+const STORAGE_KEYS = {
+  POS: 'po_manager_pos',
+  PRINT_LOG: 'po_manager_print_log',
+  ISSUE_LOG: 'po_manager_issue_log',
+  COMPLETED_LOG: 'po_manager_completed_log',
+  REPRINT_LOG: 'po_manager_reprint_log',
+  ACTIVITY_LOG: 'po_manager_activity_log',
+  HANDOVER_RECEIPTS: 'po_manager_handover_receipts',
 };
 
-const initialPOs = generateDemoPOs();
+// Load data from localStorage
+const loadFromStorage = (key, defaultValue = []) => {
+  try {
+    const saved = localStorage.getItem(key);
+    if (saved) return JSON.parse(saved);
+  } catch (e) {
+    console.error('Error loading from storage:', e);
+  }
+  return defaultValue;
+};
+
+// Save data to localStorage
+const saveToStorage = (key, data) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (e) {
+    console.error('Error saving to storage:', e);
+  }
+};
 
 export function AppProvider({ children }) {
-  const [pos, setPOs] = useState(initialPOs);
-  const [printLog, setPrintLog] = useState([]);
-  const [issueLog, setIssueLog] = useState([]);
-  const [completedLog, setCompletedLog] = useState([]);
-  const [reprintLog, setReprintLog] = useState([]);
-  const [activityLog, setActivityLog] = useState([]);
-  // Handover receipts - stores complete record of each handover with signature
-  const [handoverReceipts, setHandoverReceipts] = useState([]);
+  // All data starts EMPTY - no demo/sample data
+  const [pos, setPOs] = useState(() => loadFromStorage(STORAGE_KEYS.POS, []));
+  const [printLog, setPrintLog] = useState(() => loadFromStorage(STORAGE_KEYS.PRINT_LOG, []));
+  const [issueLog, setIssueLog] = useState(() => loadFromStorage(STORAGE_KEYS.ISSUE_LOG, []));
+  const [completedLog, setCompletedLog] = useState(() => loadFromStorage(STORAGE_KEYS.COMPLETED_LOG, []));
+  const [reprintLog, setReprintLog] = useState(() => loadFromStorage(STORAGE_KEYS.REPRINT_LOG, []));
+  const [activityLog, setActivityLog] = useState(() => loadFromStorage(STORAGE_KEYS.ACTIVITY_LOG, []));
+  const [handoverReceipts, setHandoverReceipts] = useState(() => loadFromStorage(STORAGE_KEYS.HANDOVER_RECEIPTS, []));
   const [notifications, setNotifications] = useState([]);
+
+  // Save to localStorage whenever data changes
+  useEffect(() => { saveToStorage(STORAGE_KEYS.POS, pos); }, [pos]);
+  useEffect(() => { saveToStorage(STORAGE_KEYS.PRINT_LOG, printLog); }, [printLog]);
+  useEffect(() => { saveToStorage(STORAGE_KEYS.ISSUE_LOG, issueLog); }, [issueLog]);
+  useEffect(() => { saveToStorage(STORAGE_KEYS.COMPLETED_LOG, completedLog); }, [completedLog]);
+  useEffect(() => { saveToStorage(STORAGE_KEYS.REPRINT_LOG, reprintLog); }, [reprintLog]);
+  useEffect(() => { saveToStorage(STORAGE_KEYS.ACTIVITY_LOG, activityLog); }, [activityLog]);
+  useEffect(() => { saveToStorage(STORAGE_KEYS.HANDOVER_RECEIPTS, handoverReceipts); }, [handoverReceipts]);
 
   const addNotification = useCallback((message, type = 'info') => {
     const id = Date.now();
@@ -274,13 +264,25 @@ export function AppProvider({ children }) {
     };
   }, [pos, reprintLog]);
 
+  // Clear all data (admin only)
+  const clearAllData = useCallback(() => {
+    setPOs([]);
+    setPrintLog([]);
+    setIssueLog([]);
+    setCompletedLog([]);
+    setReprintLog([]);
+    setActivityLog([]);
+    setHandoverReceipts([]);
+    Object.values(STORAGE_KEYS).forEach(key => localStorage.removeItem(key));
+  }, []);
+
   return (
     <AppContext.Provider
       value={{
         pos, setPOs, printLog, issueLog, completedLog, reprintLog, activityLog,
         handoverReceipts, notifications, addNotification, importPOs, printPOs,
         issuePOs, completePOs, requestReprint, logActivity, getStats,
-        SLA_DAYS,
+        clearAllData, SLA_DAYS,
       }}
     >
       {children}
