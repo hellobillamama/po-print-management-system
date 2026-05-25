@@ -251,10 +251,11 @@ NextIssueRow:
 End Sub
 
 
-' ── MARK COMPLETE ──────────────────────────────────────────
+' ── MARK COMPLETE (Moves from PO_MASTER to COMPLETED sheet) ──
 Sub MarkComplete()
-    Dim ws As Worksheet
+    Dim ws As Worksheet, wsCompleted As Worksheet
     Set ws = ThisWorkbook.Sheets("PO_MASTER")
+    Set wsCompleted = ThisWorkbook.Sheets("COMPLETED")
     
     Dim sel As Range
     Set sel = Selection
@@ -267,9 +268,40 @@ Sub MarkComplete()
     Dim remarks As String
     remarks = InputBox("Enter completion remarks (optional):", "Completion Remarks")
     
-    Dim r As Range, count As Long
+    ' Setup COMPLETED sheet headers if empty
+    If wsCompleted.Cells(1, 1).Value = "" Then
+        wsCompleted.Cells(1, 1).Value = "ID"
+        wsCompleted.Cells(1, 2).Value = "Ord No"
+        wsCompleted.Cells(1, 3).Value = "Ord Type"
+        wsCompleted.Cells(1, 4).Value = "Factory/Karigar"
+        wsCompleted.Cells(1, 5).Value = "Ord Dt"
+        wsCompleted.Cells(1, 6).Value = "Our Ref"
+        wsCompleted.Cells(1, 7).Value = "EO No"
+        wsCompleted.Cells(1, 8).Value = "Style No"
+        wsCompleted.Cells(1, 9).Value = "Prod Qty"
+        wsCompleted.Cells(1, 10).Value = "Approval"
+        wsCompleted.Cells(1, 11).Value = "Status"
+        wsCompleted.Cells(1, 12).Value = "Karigar"
+        wsCompleted.Cells(1, 13).Value = "Printed At"
+        wsCompleted.Cells(1, 14).Value = "Printed By"
+        wsCompleted.Cells(1, 15).Value = "SLA Due"
+        wsCompleted.Cells(1, 16).Value = "Issued At"
+        wsCompleted.Cells(1, 17).Value = "Issued By"
+        wsCompleted.Cells(1, 18).Value = "Completed At"
+        wsCompleted.Cells(1, 19).Value = "Remarks"
+        wsCompleted.Cells(1, 20).Value = "Uploaded At"
+        wsCompleted.Rows(1).Font.Bold = True
+        wsCompleted.Rows(1).Interior.Color = RGB(0, 128, 0)
+        wsCompleted.Rows(1).Font.Color = RGB(255, 255, 255)
+    End If
     
+    Dim count As Long, rowsToDelete As Collection
+    Set rowsToDelete = New Collection
     count = 0
+    
+    Application.ScreenUpdating = False
+    
+    Dim r As Range
     For Each r In sel.Rows
         Dim rowNum3 As Long
         rowNum3 = r.Row
@@ -277,18 +309,44 @@ Sub MarkComplete()
         If rowNum3 < 2 Then GoTo NextCompleteRow
         
         If ws.Cells(rowNum3, COL_STATUS).Value = "ISSUED" Then
-            ws.Cells(rowNum3, COL_STATUS).Value = "COMPLETED"
-            ws.Cells(rowNum3, COL_COMPLETED_AT).Value = Now
-            ws.Cells(rowNum3, COL_REMARKS).Value = remarks
+            ' Copy entire row to COMPLETED sheet
+            Dim compRow As Long
+            compRow = wsCompleted.Cells(wsCompleted.Rows.Count, 1).End(xlUp).Row + 1
+            
+            Dim c As Integer
+            For c = 1 To 20
+                wsCompleted.Cells(compRow, c).Value = ws.Cells(rowNum3, c).Value
+            Next c
+            
+            ' Update status and timestamp in COMPLETED sheet
+            wsCompleted.Cells(compRow, COL_STATUS).Value = "COMPLETED"
+            wsCompleted.Cells(compRow, COL_COMPLETED_AT).Value = Now
+            wsCompleted.Cells(compRow, COL_REMARKS).Value = remarks
+            wsCompleted.Rows(compRow).Interior.Color = RGB(200, 255, 200)
+            
+            ' Mark row for deletion from PO_MASTER
+            rowsToDelete.Add rowNum3
             count = count + 1
         End If
 NextCompleteRow:
     Next r
     
+    ' Delete rows from PO_MASTER (bottom to top to preserve row numbers)
+    Dim d As Long
+    For d = rowsToDelete.count To 1 Step -1
+        ws.Rows(rowsToDelete(d)).Delete
+    Next d
+    
+    Application.ScreenUpdating = True
+    
     Call ColorCodeMaster
     Call UpdateDashboard
     
-    MsgBox "Completed: " & count & " PO(s)", vbInformation, "Completion Done"
+    MsgBox "✅ Completed: " & count & " PO(s)" & vbCrLf & vbCrLf & _
+           "These POs have been:" & vbCrLf & _
+           "  • Removed from PO_MASTER" & vbCrLf & _
+           "  • Moved to COMPLETED sheet" & vbCrLf & _
+           "  • Excluded from all statistics", vbInformation, "Completion Done"
 End Sub
 
 
